@@ -1,6 +1,23 @@
 import 'dart:convert';
 import 'job_status.dart';
 
+class FileState {
+  final int originalBytes;
+  final bool compressed;
+
+  const FileState({required this.originalBytes, required this.compressed});
+
+  Map<String, dynamic> toMap() => {
+        'originalBytes': originalBytes,
+        'compressed': compressed,
+      };
+
+  static FileState fromMap(Map<String, dynamic> m) => FileState(
+        originalBytes: (m['originalBytes'] ?? 0) as int,
+        compressed: (m['compressed'] ?? false) as bool,
+      );
+}
+
 class FolderJob {
   final String displayName; // e.g., "DCIM"
   final String folderPath; // full path to the root selected in Settings
@@ -16,10 +33,11 @@ class FolderJob {
   String? currentFilePath; // file being processed or last paused file
   String? errorMessage;
 
-  // REPLACED: donePaths -> completedSizes (path -> ORIGINAL size in bytes)
-  Map<String, int> completedSizes;
+  // NEW: authoritative mapping of *all* videos found => size + compressed flag
+  // Keys are *source* file paths (not outputs).
+  Map<String, FileState> fileIndex;
 
-  // Keep: tracks outputs created by the app (absolute paths) so we ignore them when scanning/picking.
+  Map<String, int> completedSizes;
   Set<String> compressedPaths;
 
   FolderJob({
@@ -30,10 +48,20 @@ class FolderJob {
     this.totalBytes = 0,
     this.processedBytes = 0,
     this.currentFilePath,
+    Map<String, FileState>? fileIndex,
     Map<String, int>? completedSizes,
     Set<String>? compressedPaths,
-  })  : completedSizes = completedSizes ?? <String, int>{},
+  })  : fileIndex = fileIndex ?? <String, FileState>{},
+        completedSizes = completedSizes ?? <String, int>{},
         compressedPaths = compressedPaths ?? <String>{};
+
+  // Helpers to compute totals from the index
+  int get mappedTotalBytes =>
+      fileIndex.values.fold(0, (a, f) => a + f.originalBytes);
+
+  int get mappedCompressedBytes => fileIndex.entries
+      .where((e) => e.value.compressed)
+      .fold(0, (a, e) => a + e.value.originalBytes);
 
   Map<String, dynamic> toMap() => {
         'displayName': displayName,
@@ -43,7 +71,10 @@ class FolderJob {
         'totalBytes': totalBytes,
         'processedBytes': processedBytes,
         'currentFilePath': currentFilePath,
-        'completedSizes': completedSizes, // NEW
+        'fileIndex': {
+          for (final e in fileIndex.entries) e.key: e.value.toMap(),
+        },
+        'completedSizes': completedSizes,
         'compressedPaths': compressedPaths.toList(),
       };
 
@@ -55,6 +86,11 @@ class FolderJob {
         totalBytes: (m['totalBytes'] ?? 0) as int,
         processedBytes: (m['processedBytes'] ?? 0) as int,
         currentFilePath: m['currentFilePath'],
+        fileIndex: {
+          for (final e
+              in (m['fileIndex'] as Map? ?? const <String, dynamic>{}).entries)
+            e.key: FileState.fromMap(Map<String, dynamic>.from(e.value)),
+        },
         completedSizes: Map<String, int>.from(m['completedSizes'] ?? const {}),
         compressedPaths: ((m['compressedPaths'] ?? const <String>[]) as List)
             .map((e) => e.toString())

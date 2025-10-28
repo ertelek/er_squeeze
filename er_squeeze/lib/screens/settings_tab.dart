@@ -168,6 +168,7 @@ class _SettingsTabState extends State<SettingsTab> {
       job.currentFilePath = null;
       job.completedSizes.clear();
       job.compressedPaths.clear();
+      job.fileIndex.clear();
       job.status = JobStatus.notStarted;
     }
   }

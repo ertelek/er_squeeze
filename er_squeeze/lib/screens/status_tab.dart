@@ -18,6 +18,7 @@ class StatusTabState extends State<StatusTab> {
   final _storage = StorageService();
   Map<String, FolderJob> _jobs = {};
   final _mgr = CompressionManager();
+  bool _showPct = true;
 
   @override
   void initState() {
@@ -41,6 +42,11 @@ class StatusTabState extends State<StatusTab> {
 
   Future<void> refreshJobs() async {
     _jobs = await _storage.loadJobs();
+
+    final opts = await _storage.loadOptions();
+    final keepOriginal = (opts['keepOriginal'] ?? false) as bool;
+    _showPct = !keepOriginal;
+
     if (mounted) setState(() {});
   }
 
@@ -86,9 +92,15 @@ class StatusTabState extends State<StatusTab> {
             }
 
             final name = composedName(job);
-            final sizePct = job.totalBytes == 0
+            final completedFileCount = job.fileIndex.values
+                .where((a) => a.compressed)
+                .length
+                .toString();
+            final totalFileCount = job.fileIndex.length.toString();
+            final sizePct = job.fileIndex.isEmpty
                 ? 0
-                : ((job.processedBytes / job.totalBytes) * 100)
+                : ((int.parse(completedFileCount) / int.parse(totalFileCount)) *
+                        100)
                     .clamp(0, 100)
                     .toDouble();
 
@@ -97,17 +109,20 @@ class StatusTabState extends State<StatusTab> {
                 leading:
                     Icon(Icons.circle, color: _dotColorFor(job, 0), size: 12),
                 title: Text(name),
-                subtitle: (job.status != JobStatus.completed)
+                subtitle: (_showPct && job.status != JobStatus.completed)
                     ? Text('${sizePct.toStringAsFixed(1)}%')
                     : null,
                 childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                 children: [
-                  _kv('Folder path', FolderJob.getPrettyFolderPath(job.folderPath)),
-                  _kv('Completed', '${sizePct.toStringAsFixed(1)}%'),
+                  _kv('Folder path',
+                      FolderJob.getPrettyFolderPath(job.folderPath)),
+                  if (_showPct)
+                    _kv('Completed',
+                        '$completedFileCount / $totalFileCount (${sizePct.toStringAsFixed(1)}%)'),
                   if (job.currentFilePath != null)
                     _kv('Current file',
                         FolderJob.getPrettyFolderPath(job.currentFilePath!)),
-                  if (job.errorMessage != null) _kv('Error', job.errorMessage!),
+                  // if (job.errorMessage != null) _kv('Error', job.errorMessage!),
                 ],
               ),
             );

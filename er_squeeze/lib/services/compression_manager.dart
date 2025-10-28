@@ -94,7 +94,10 @@ class CompressionManager {
       job.status = JobStatus.inProgress;
       await ForegroundNotifier.update(
         title: 'Squeezing ${job.displayName}',
-        text: _buildNotificationText(job),
+        text: keepOriginal
+            ? ""
+            : _buildNotificationText(
+                job), // completed status is currently unsupported if keeping original files
       );
       await _storage.saveJobs(jobs);
 
@@ -120,7 +123,10 @@ class CompressionManager {
 
       await ForegroundNotifier.update(
         title: 'Squeezing ${_composeDisplayTitle(job)}',
-        text: _buildNotificationText(job),
+        text: keepOriginal
+            ? ""
+            : _buildNotificationText(
+                job), // completed status is currently unsupported if keeping original files,
       );
 
       // Main file-processing loop
@@ -143,7 +149,10 @@ class CompressionManager {
         await _storage.saveJobs(jobs);
         await ForegroundNotifier.update(
           title: 'Squeezing ${_composeDisplayTitle(job)}',
-          text: _buildNotificationText(job),
+          text: keepOriginal
+              ? ""
+              : _buildNotificationText(
+                  job), // completed status is currently unsupported if keeping original files,
         );
 
         final videoProcessor = VideoProcessor();
@@ -176,8 +185,19 @@ class CompressionManager {
         if (rc != null && rc.isValueSuccess()) {
           // 1) Account original size (authoritative)
           final originalSize = await _tryGetFileSize(next);
+          // Record in both places for backward compat
           job.completedSizes[next.path] = originalSize;
-          job.processedBytes += originalSize;
+
+// Ensure index has this file with correct size, now marked compressed
+          final prev = job.fileIndex[next.path];
+          job.fileIndex[next.path] = FileState(
+            originalBytes: prev?.originalBytes ?? originalSize,
+            compressed: true,
+          );
+
+// Derive progress from mapping
+          job.totalBytes = job.mappedTotalBytes;
+          job.processedBytes = job.mappedCompressedBytes;
 
           // 2) If output grew, replace it with the original bytes
           await _ensureOutputNoBiggerThanInput(
@@ -208,7 +228,10 @@ class CompressionManager {
 
           await ForegroundNotifier.update(
             title: 'Squeezing ${_composeDisplayTitle(job)}',
-            text: _buildNotificationText(job),
+            text: keepOriginal
+                ? ""
+                : _buildNotificationText(
+                    job), // completed status is currently unsupported if keeping original files,
           );
           await _storage.saveJobs(jobs);
 
@@ -327,7 +350,10 @@ class CompressionManager {
   }
 
   String _buildNotificationText(FolderJob job) {
-    return 'Completed: ${_formatPercent(job.processedBytes, job.totalBytes)}';
+    final completedFileCount =
+        job.fileIndex.values.where((a) => a.compressed).length.toString();
+    final totalFileCount = job.fileIndex.length.toString();
+    return 'Completed: $completedFileCount / $totalFileCount (${_formatPercent(int.parse(completedFileCount), int.parse(totalFileCount))})';
   }
 
   String _formatPercent(int done, int total) {
@@ -415,36 +441,36 @@ class CompressionManager {
     Directory root,
     FolderJob job,
   ) async {
-    int total = 0;
+    final nextIndex = <String, FileState>{};
 
     try {
       await for (final entity
           in root.list(recursive: true, followLinks: false)) {
         if (entity is! File) continue;
-        if (entity.path.contains('.Trash')) continue;
+        final path = entity.path;
+        if (path.contains('.Trash')) continue;
+        if (!_looksLikeVideoPath(path)) continue;
 
-        final filePath = entity.path;
-        if (!_looksLikeVideoPath(filePath)) continue;
-        if (job.compressedPaths.contains(filePath))
-          continue; // skip our outputs
+        // Skip outputs we produced (by absolute path)
+        if (job.compressedPaths.contains(path)) continue;
 
-        // If already completed, include the known original size
-        if (job.completedSizes.containsKey(filePath)) {
-          total += job.completedSizes[filePath]!;
-          continue;
-        }
+        final size = await _tryGetFileSize(entity);
 
-        total += await _tryGetFileSize(entity);
+        final alreadyCompressed = job.completedSizes.containsKey(path);
+        nextIndex[path] = FileState(
+          originalBytes: size,
+          compressed: alreadyCompressed,
+        );
       }
     } catch (_) {
-      // silently ignore traversal errors
+      // ignore traversal errors
     }
 
-    job.totalBytes = total;
+    job.fileIndex = nextIndex;
 
-    // Keep processedBytes consistent with sum of completed originals
-    job.processedBytes =
-        job.completedSizes.values.fold<int>(0, (acc, v) => acc + v);
+    // Keep legacy counters in sync so UI keeps working.
+    job.totalBytes = job.mappedTotalBytes;
+    job.processedBytes = job.mappedCompressedBytes;
   }
 
   Future<File?> _findNextVideoRecursively(Directory root, FolderJob job) async {
@@ -452,20 +478,15 @@ class CompressionManager {
       await for (final entity
           in root.list(recursive: true, followLinks: false)) {
         if (entity is! File) continue;
-        if (entity.path.contains('.Trash')) continue;
-
-        final filePath = entity.path;
-        if (!_looksLikeVideoPath(filePath)) continue;
-
-        // Skip files we already processed or that are our produced outputs
-        if (job.completedSizes.containsKey(filePath)) continue;
-        if (job.compressedPaths.contains(filePath)) continue;
-
+        final path = entity.path;
+        if (path.contains('.Trash')) continue;
+        if (!_looksLikeVideoPath(path)) continue;
+        if (job.compressedPaths.contains(path)) continue; // our outputs
+        final fs = job.fileIndex[path];
+        if (fs != null && fs.compressed) continue; // already done
         return entity;
       }
-    } catch (_) {
-      // silently ignore traversal errors
-    }
+    } catch (_) {}
     return null;
   }
 
