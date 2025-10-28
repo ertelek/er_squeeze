@@ -63,4 +63,7 @@ class FolderJob {
 
   String toJson() => jsonEncode(toMap());
   static FolderJob fromJson(String s) => fromMap(jsonDecode(s));
+
+  static String getPrettyFolderPath(String s) =>
+      s.replaceFirst("/storage/emulated/0", "Internal Storage");
 }

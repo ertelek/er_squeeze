@@ -102,10 +102,11 @@ class StatusTabState extends State<StatusTab> {
                     : null,
                 childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                 children: [
-                  _kv('Folder path', job.folderPath),
+                  _kv('Folder path', FolderJob.getPrettyFolderPath(job.folderPath)),
                   _kv('Completed', '${sizePct.toStringAsFixed(1)}%'),
                   if (job.currentFilePath != null)
-                    _kv('Current file', job.currentFilePath!),
+                    _kv('Current file',
+                        FolderJob.getPrettyFolderPath(job.currentFilePath!)),
                   if (job.errorMessage != null) _kv('Error', job.errorMessage!),
                 ],
               ),

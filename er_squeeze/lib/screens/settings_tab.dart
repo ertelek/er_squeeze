@@ -547,7 +547,8 @@ class _SettingsTabState extends State<SettingsTab> {
                                 (j) => ListTile(
                                   leading: const Icon(Icons.folder),
                                   title: Text(j.displayName),
-                                  subtitle: Text(j.folderPath),
+                                  subtitle: Text(FolderJob.getPrettyFolderPath(
+                                      j.folderPath)),
                                   trailing: IconButton(
                                     icon: const Icon(Icons.delete_outline),
                                     onPressed: _isLocked
@@ -587,7 +588,7 @@ class _SettingsTabState extends State<SettingsTab> {
                           ),
                           title: Text(j.displayName),
                           subtitle: Text(
-                            '${j.folderPath}\nrecursive: ${j.recursive}',
+                            '${FolderJob.getPrettyFolderPath(j.folderPath)}\nrecursive: ${j.recursive}',
                           ),
                           isThreeLine: true,
                         ))
